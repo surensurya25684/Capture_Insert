@@ -6,9 +6,13 @@ import io
 
 # Function to extract text from PDF
 def extract_text_from_pdf(pdf_file):
-    doc = fitz.open(stream=pdf_file.read(), filetype="pdf")
-    text = "\n".join([page.get_text("text") for page in doc])
-    return text
+    try:
+        doc = fitz.open(stream=pdf_file.read(), filetype="pdf")
+        text = "\n".join([page.get_text("text") for page in doc])
+        return text
+    except Exception as e:
+        st.error(f"Error extracting text from PDF: {e}")
+        return ""
 
 # Function to extract AGM Proposals
 def parse_agm_proposals(text):
@@ -19,7 +23,10 @@ def parse_agm_proposals(text):
     )
 
     matches = proposal_pattern.findall(text)
-    
+
+    if not matches:
+        st.warning("⚠️ No AGM Proposals found in the extracted text.")
+
     for match in matches:
         proposal_number, proposal_text, votes_for, votes_against, votes_abstain, votes_broker_non_votes = match
         resolution_outcome = "Approved" if int(votes_for.replace(',', '')) > int(votes_against.replace(',', '')) else "Rejected"
@@ -47,7 +54,10 @@ def parse_director_elections(text):
     director_pattern = re.compile(r"([\w\s]+)\s+([\d,]+)\s+([\d,]+)?\s+([\d,]+)?")
 
     matches = director_pattern.findall(text)
-    
+
+    if not matches:
+        st.warning("⚠️ No Director Election data found in the extracted text.")
+
     for match in matches:
         director_name, votes_for, votes_withheld, votes_broker_non_votes = match
         votes_against, votes_abstained = "", ""
@@ -67,19 +77,23 @@ def parse_director_elections(text):
 
 # Function to save extracted data into an Excel file using openpyxl
 def save_to_excel(proposals, directors):
-    proposal_data = [item for sublist in proposals for item in sublist]
-    director_data = [item for sublist in directors for item in sublist]
+    try:
+        proposal_data = [item for sublist in proposals for item in sublist]
+        director_data = [item for sublist in directors for item in sublist]
 
-    proposal_df = pd.DataFrame(proposal_data, columns=["Field", "Value"])
-    director_df = pd.DataFrame(director_data, columns=["Field", "Value"])
+        proposal_df = pd.DataFrame(proposal_data, columns=["Field", "Value"])
+        director_df = pd.DataFrame(director_data, columns=["Field", "Value"])
 
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:  # Use openpyxl instead of xlsxwriter
-        proposal_df.to_excel(writer, sheet_name="Proposal Sheet", index=False)
-        director_df.to_excel(writer, sheet_name="Non-Proposal Sheet", index=False)
-    
-    output.seek(0)
-    return output
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine="openpyxl") as writer:  # Use openpyxl instead of xlsxwriter
+            proposal_df.to_excel(writer, sheet_name="Proposal Sheet", index=False)
+            director_df.to_excel(writer, sheet_name="Non-Proposal Sheet", index=False)
+        
+        output.seek(0)
+        return output
+    except Exception as e:
+        st.error(f"Error generating Excel file: {e}")
+        return None
 
 # Streamlit UI
 st.title("📄 AGM Proposal & Director Election Data Extractor (PDF Version)")
@@ -89,7 +103,12 @@ uploaded_file = st.file_uploader("Upload AGM Result File (PDF)", type=["pdf"])
 
 if uploaded_file is not None:
     st.info("📄 Extracting text from the PDF...")
+
     pdf_text = extract_text_from_pdf(uploaded_file)
+
+    # Display Extracted Text for Debugging
+    st.subheader("Extracted Text Preview")
+    st.text_area("PDF Extracted Text:", pdf_text[:2000], height=300)  # Show first 2000 characters
 
     # Extract and process data
     proposals = parse_agm_proposals(pdf_text)
@@ -103,9 +122,12 @@ if uploaded_file is not None:
         # Generate Excel file
         excel_file = save_to_excel(proposals, directors)
 
-        st.download_button(
-            label="📥 Download Extracted Data (Excel)",
-            data=excel_file,
-            file_name="AGM_Results.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+        if excel_file:
+            st.download_button(
+                label="📥 Download Extracted Data (Excel)",
+                data=excel_file,
+                file_name="AGM_Results.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+        else:
+            st.error("❌ Failed to generate Excel file.")
