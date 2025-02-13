@@ -4,20 +4,22 @@ import re
 import fitz  # PyMuPDF
 import io
 
-# Function to extract text from PDF (Handles Multi-Page PDFs)
-def extract_text_from_pdf(pdf_file):
+# Function to extract Section 5.07 from PDF
+def extract_section_507(pdf_file):
     try:
         doc = fitz.open(stream=pdf_file.read(), filetype="pdf")
         extracted_text = []
 
         for page_num in range(len(doc)):
             page = doc[page_num]
-            text = page.get_text("text")  # Extract text as 'text'
+            text = page.get_text("text")
 
-            if not text.strip():  # If no text, PDF may be an image
-                st.warning(f"⚠️ Page {page_num + 1} seems to be a scanned image. OCR may be required.")
+            if "5.07" in text:  # Look for Section 5.07 in the text
+                extracted_text.append(text)
 
-            extracted_text.append(text)  # Collect text from each page
+        if not extracted_text:
+            st.warning("⚠️ Section 5.07 not found in the PDF. Please check the document.")
+            return ""
 
         return "\n".join(extracted_text)
 
@@ -25,7 +27,7 @@ def extract_text_from_pdf(pdf_file):
         st.error(f"Error extracting text from PDF: {e}")
         return ""
 
-# Function to extract AGM Proposals
+# Function to extract AGM Proposals from Section 5.07
 def parse_agm_proposals(text):
     proposals = []
     
@@ -36,7 +38,7 @@ def parse_agm_proposals(text):
     matches = proposal_pattern.findall(text)
 
     if not matches:
-        st.warning("⚠️ No AGM Proposals found in the extracted text.")
+        st.warning("⚠️ No AGM Proposals found in Section 5.07.")
 
     for match in matches:
         proposal_number, proposal_text, votes_for, votes_against, votes_abstain, votes_broker_non_votes = match
@@ -58,7 +60,7 @@ def parse_agm_proposals(text):
     
     return proposals
 
-# Function to extract Director Elections
+# Function to extract Director Elections from Section 5.07
 def parse_director_elections(text):
     directors = []
     
@@ -67,7 +69,7 @@ def parse_director_elections(text):
     matches = director_pattern.findall(text)
 
     if not matches:
-        st.warning("⚠️ No Director Election data found in the extracted text.")
+        st.warning("⚠️ No Director Election data found in Section 5.07.")
 
     for match in matches:
         director_name, votes_for, votes_withheld, votes_broker_non_votes = match
@@ -107,26 +109,26 @@ def save_to_excel(proposals, directors):
         return None
 
 # Streamlit UI
-st.title("📄 AGM Proposal & Director Election Data Extractor (PDF Version)")
-st.write("Upload an AGM results **PDF** document and extract structured data into an **Excel file**.")
+st.title("📄 AGM Proposal & Director Election Data Extractor (Section 5.07 Only)")
+st.write("Upload an AGM results **PDF** document, extract **Section 5.07**, and save structured data in **Excel format**.")
 
 uploaded_file = st.file_uploader("Upload AGM Result File (PDF)", type=["pdf"])
 
 if uploaded_file is not None:
-    st.info("📄 Extracting text from the PDF...")
+    st.info("📄 Extracting Section 5.07 from the PDF...")
 
-    pdf_text = extract_text_from_pdf(uploaded_file)
+    pdf_text = extract_section_507(uploaded_file)
 
     # Display Extracted Text for Debugging
-    st.subheader("Extracted Text Preview")
-    st.text_area("PDF Extracted Text:", pdf_text[:5000], height=300)  # Show first 5000 characters
+    st.subheader("Extracted Section 5.07 Preview")
+    st.text_area("Extracted Text:", pdf_text[:5000], height=300)  # Show first 5000 characters
 
     # Extract and process data
     proposals = parse_agm_proposals(pdf_text)
     directors = parse_director_elections(pdf_text)
 
     if not proposals and not directors:
-        st.warning("⚠️ No proposals or director election data found in the uploaded PDF.")
+        st.warning("⚠️ No proposals or director election data found in Section 5.07.")
     else:
         st.success("✅ Data extracted successfully! You can now download the Excel file.")
 
