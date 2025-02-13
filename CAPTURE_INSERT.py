@@ -4,12 +4,23 @@ import re
 import fitz  # PyMuPDF
 import io
 
-# Function to extract text from PDF
+# Function to extract text from PDF (Handles Multi-Page PDFs)
 def extract_text_from_pdf(pdf_file):
     try:
         doc = fitz.open(stream=pdf_file.read(), filetype="pdf")
-        text = "\n".join([page.get_text("text") for page in doc])
-        return text
+        extracted_text = []
+
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            text = page.get_text("text")  # Extract text as 'text'
+
+            if not text.strip():  # If no text, PDF may be an image
+                st.warning(f"⚠️ Page {page_num + 1} seems to be a scanned image. OCR may be required.")
+
+            extracted_text.append(text)  # Collect text from each page
+
+        return "\n".join(extracted_text)
+
     except Exception as e:
         st.error(f"Error extracting text from PDF: {e}")
         return ""
@@ -108,7 +119,7 @@ if uploaded_file is not None:
 
     # Display Extracted Text for Debugging
     st.subheader("Extracted Text Preview")
-    st.text_area("PDF Extracted Text:", pdf_text[:2000], height=300)  # Show first 2000 characters
+    st.text_area("PDF Extracted Text:", pdf_text[:5000], height=300)  # Show first 5000 characters
 
     # Extract and process data
     proposals = parse_agm_proposals(pdf_text)
