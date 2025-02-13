@@ -27,12 +27,40 @@ def extract_section_507(pdf_file):
         st.error(f"Error extracting text from PDF: {e}")
         return ""
 
-# Function to extract AGM Proposals from Section 5.07
+# Function to extract Director Election Results
+def parse_director_elections(text):
+    directors = []
+    
+    director_pattern = re.compile(r"([\w\s]+)\s+([\d,]+)\s+([\d,]+)\s+([\d,]+)\s+([\d,]+)")
+
+    matches = director_pattern.findall(text)
+
+    if not matches:
+        st.warning("⚠️ No Director Election data found in Section 5.07.")
+
+    for match in matches:
+        director_name, votes_for, votes_against, votes_abstain, votes_broker_non_votes = match
+
+        directors.append([
+            ("Director Election Year", "2024"),
+            ("Individual", director_name.strip()),
+            ("Director Votes For", votes_for),
+            ("Director Votes Against", votes_against),
+            ("Director Votes Abstained", votes_abstain),
+            ("Director Votes Broker-Non-Votes", votes_broker_non_votes),
+            ("---", "---")  # Separator row
+        ])
+    
+    return directors
+
+# Function to extract AGM Proposals
 def parse_agm_proposals(text):
     proposals = []
-    
+
+    # Proposal pattern to capture proposal number, vote results
     proposal_pattern = re.compile(
-        r"Proposal (\d+): (.*?)\nFor -- ([\d,]+) Against -- ([\d,]+) Abstain -- ([\d,]+) BrokerNon-Votes -- (\d+)", re.DOTALL
+        r"Proposal No\.\s*(\d+)\s*–\s*(.*?)\nFor\s*([\d,]+)\s*Against\s*([\d,]+)\s*Abstain\s*([\d,]+)\s*Broker Non-Votes\s*([\d,]+)",
+        re.DOTALL
     )
 
     matches = proposal_pattern.findall(text)
@@ -59,34 +87,6 @@ def parse_agm_proposals(text):
         ])
     
     return proposals
-
-# Function to extract Director Elections from Section 5.07
-def parse_director_elections(text):
-    directors = []
-    
-    director_pattern = re.compile(r"([\w\s]+)\s+([\d,]+)\s+([\d,]+)?\s+([\d,]+)?")
-
-    matches = director_pattern.findall(text)
-
-    if not matches:
-        st.warning("⚠️ No Director Election data found in Section 5.07.")
-
-    for match in matches:
-        director_name, votes_for, votes_withheld, votes_broker_non_votes = match
-        votes_against, votes_abstained = "", ""
-
-        directors.append([
-            ("Director Election Year", "2024"),
-            ("Individual", director_name.strip()),
-            ("Director Votes For", votes_for),
-            ("Director Votes Against", votes_against if votes_against else ""),
-            ("Director Votes Abstained", votes_abstained if votes_abstained else ""),
-            ("Director Votes Withheld", votes_withheld if votes_withheld else ""),
-            ("Director Votes Broker-Non-Votes", votes_broker_non_votes if votes_broker_non_votes else ""),
-            ("---", "---")  # Separator row
-        ])
-    
-    return directors
 
 # Function to save extracted data into an Excel file using openpyxl
 def save_to_excel(proposals, directors):
