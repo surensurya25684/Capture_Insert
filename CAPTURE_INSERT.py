@@ -65,7 +65,7 @@ def parse_director_elections(text):
     
     return directors
 
-# Function to save extracted data into an Excel file
+# Function to save extracted data into an Excel file using openpyxl
 def save_to_excel(proposals, directors):
     proposal_data = [item for sublist in proposals for item in sublist]
     director_data = [item for sublist in directors for item in sublist]
@@ -74,7 +74,7 @@ def save_to_excel(proposals, directors):
     director_df = pd.DataFrame(director_data, columns=["Field", "Value"])
 
     output = io.BytesIO()
-    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:  # Use openpyxl instead of xlsxwriter
         proposal_df.to_excel(writer, sheet_name="Proposal Sheet", index=False)
         director_df.to_excel(writer, sheet_name="Non-Proposal Sheet", index=False)
     
