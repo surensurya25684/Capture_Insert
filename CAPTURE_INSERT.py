@@ -242,4 +242,4 @@ if uploaded_file is not None:
     
     # Format data for Excel (vertical layout)
     proposals_rows = format_proposals_for_excel(proposals)
-    directors_rows = format_directors_for_exce
+    directors_rows = format_directors_for_excel(directors)
