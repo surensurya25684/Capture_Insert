@@ -27,10 +27,10 @@ def extract_text_from_pdf(pdf_file):
 
 def get_item507_section(text):
     """
-    Attempt to isolate the Item 5.07 section.
-    We look for "Item 5.07." and capture until the next "Item" with a two-digit section number or until "SIGNATURES".
+    Isolate the Item 5.07 section.
+    We look for "Item 5.07." and capture until the next "Item <number>.".
     """
-    match = re.search(r'(Item\s+5\.07\..*?)(?=Item\s+\d{1,2}\.\d{2}|SIGNATURES)', text, re.DOTALL | re.IGNORECASE)
+    match = re.search(r'(Item\s+5\.07\..*?)(?=Item\s+\d+\.)', text, re.DOTALL | re.IGNORECASE)
     if match:
         return match.group(1)
     else:
@@ -39,12 +39,12 @@ def get_item507_section(text):
 
 def parse_directors(section_text):
     directors = []
-    # Adjust regex to allow an optional leading number & period (e.g., "1. Proposal 1 – Election of Directors")
-    proposal1_pattern = r'(?:\d+\.\s*)?Proposal\s+1\s*[-–—]\s*Election of Directors(.*?)(?=(?:\d+\.\s*)?Proposal\s+\d+\s*[-–—]|$)'
+    # Adjust regex to allow an optional leading number and a possible period after "Election of Directors"
+    proposal1_pattern = r'(?:\d+\.\s*)?Proposal\s+1\s*[-–—]\s*Election of Directors\.?(.*?)(?=(?:\d+\.\s*)?Proposal\s+\d+\s*[-–—]|$)'
     match = re.search(proposal1_pattern, section_text, re.DOTALL | re.IGNORECASE)
     if match:
         proposal1_content = match.group(1)
-        # Search for the director table header.
+        # Look for the director table header (exact phrase)
         table_match = re.search(r'Nominee\s+For\s+Against\s+Abstain\s+Broker Non[-\s]?Votes(.*)', proposal1_content, re.DOTALL | re.IGNORECASE)
         if table_match:
             table_text = table_match.group(1)
@@ -53,7 +53,7 @@ def parse_directors(section_text):
                 line = line.strip()
                 if not line:
                     continue
-                # Split the line by two or more spaces.
+                # Split the line by two or more spaces
                 parts = re.split(r'\s{2,}', line)
                 if len(parts) >= 5:
                     name = parts[0]
@@ -92,7 +92,7 @@ def parse_directors(section_text):
 
 def parse_proposals(section_text):
     proposals = []
-    # Regex for proposals 2, 3, and 4 with optional leading numbers.
+    # Regex for Proposals 2, 3, and 4 with optional leading numbers.
     proposal_pattern = r'(?:\d+\.\s*)?Proposal\s+([2-4])\s*[-–—]\s*(.*?)(?=(?:\d+\.\s*)?Proposal\s+[2-4]\s*[-–—]|$)'
     proposal_blocks = re.findall(proposal_pattern, section_text, re.DOTALL | re.IGNORECASE)
     
@@ -212,13 +212,13 @@ if uploaded_file is not None:
         st.error("No text extracted from PDF.")
     else:
         st.success("PDF text extraction complete!")
-        # Uncomment below to debug extracted text:
+        # Uncomment the following line to view extracted text for debugging:
         # st.text_area("Extracted PDF Text", pdf_text, height=300)
     
     # Isolate the Item 5.07 section
     section_text = get_item507_section(pdf_text)
     
-    # Parse director election data from Proposal 1 and proposals 2-4
+    # Parse director election data (Proposal 1) and proposals 2-4
     directors = parse_directors(section_text)
     proposals = parse_proposals(section_text)
     
@@ -240,7 +240,7 @@ if uploaded_file is not None:
     proposals_rows = format_proposals_for_excel(proposals)
     directors_rows = format_directors_for_excel(directors)
     
-    # Write the Excel file with two sheets
+    # Create Excel file with two sheets using xlsxwriter
     output = BytesIO()
     workbook = xlsxwriter.Workbook(output, {'in_memory': True})
     proposal_sheet = workbook.add_worksheet("Proposal sheet")
