@@ -1,8 +1,24 @@
 import streamlit as st
 import pandas as pd
 import pdfplumber
+import pytesseract
+from pdf2image import convert_from_bytes
 import re
 from io import BytesIO
+
+def extract_text_from_pdf(pdf_file):
+    text = ""
+    with pdfplumber.open(pdf_file) as pdf:
+        for page in pdf.pages:
+            page_text = page.extract_text()
+            if page_text:
+                text += page_text + "\n"
+    
+    if not text.strip():  # If no text was extracted, use OCR
+        images = convert_from_bytes(pdf_file.read())
+        text = "\n".join(pytesseract.image_to_string(img) for img in images)
+    
+    return text
 
 def extract_proposals(text):
     proposals = []
@@ -45,9 +61,7 @@ def extract_proposals(text):
     return proposals
 
 def process_pdf(pdf_file):
-    with pdfplumber.open(pdf_file) as pdf:
-        text = "\n".join(page.extract_text() for page in pdf.pages if page.extract_text())
-    
+    text = extract_text_from_pdf(pdf_file)
     proposals_data = extract_proposals(text)
     proposals_df = pd.DataFrame(proposals_data, columns=["Field", "Value"])
     
