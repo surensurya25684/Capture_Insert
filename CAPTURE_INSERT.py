@@ -7,7 +7,7 @@ from io import BytesIO
 def extract_proposals(text):
     proposals = []
     proposal_pattern = re.compile(
-        r'Proposal No\. (\d+) – (.*?)\nFor\s+([\d,]+)?\s+Against\s+([\d,]+)?\s+Abstain\s+([\d,]+)?\s+Withheld\s+([\d,]+)?\s+Broker Non-Votes\s+([\d,]+)?', re.S
+        r'Proposal\s*(?:No\.\s*)?(\d+)\s*[–-]\s*(.*?)\nFor\s+([\d,]+)?\s+Against\s+([\d,]+)?\s+Abstain\s+([\d,]+)?(?:\s+Withheld\s+([\d,]+))?\s+Broker Non-Votes\s+([\d,]+)?', re.S
     )
     matches = proposal_pattern.findall(text)
     
@@ -100,7 +100,7 @@ def main():
             st.write("### Extracted Proposal Data")
             st.dataframe(proposals_df)
         else:
-            st.write("No Proposal Data Found")
+            st.write("No Proposal Data Found - Please check if the document format is correct.")
         
         if not directors_df.empty:
             st.write("### Extracted Non-Proposal Data")
@@ -118,4 +118,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
