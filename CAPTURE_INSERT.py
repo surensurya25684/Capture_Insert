@@ -1,106 +1,156 @@
 import streamlit as st
 import pandas as pd
-import pdfplumber
-import pytesseract
-from pdf2image import convert_from_bytes
 import re
 from io import BytesIO
+import PyPDF2
 
-def extract_text_from_pdf(pdf_file):
-    text = ""
-    with pdfplumber.open(pdf_file) as pdf:
-        for page in pdf.pages:
-            page_text = page.extract_text()
-            if page_text:
-                text += page_text + "\n"
-    
-    if not text.strip():  # If no text was extracted, use OCR
-        pdf_file.seek(0)  # Reset file pointer
-        images = convert_from_bytes(pdf_file.read())
-        text = "\n".join(pytesseract.image_to_string(img) for img in images)
-    
-    print("Extracted Text:", text[:2000])  # Print the first 2000 characters to check the text format
-    return text
+st.title("AGM Results Extractor")
 
-def extract_proposals(text):
+st.markdown("""
+This tool allows you to upload an Annual General Meeting (AGM) results PDF.
+It will extract:
+- **Proposals** (with proxy year, vote results, and resolution outcome)
+- **Director Election Results** (with fixed election year 2024 and vote details)
+
+The results will be output in an Excel file with two sheets:
+- **Proposal** sheet for proposals  
+- **non-proposal** sheet for director elections  
+""")
+
+# --- File Upload ---
+uploaded_file = st.file_uploader("Upload AGM Results PDF", type="pdf")
+
+if uploaded_file:
+    # --- Extract Text from PDF ---
+    try:
+        pdf_reader = PyPDF2.PdfReader(uploaded_file)
+        full_text = ""
+        for page in pdf_reader.pages:
+            full_text += page.extract_text() + "\n"
+    except Exception as e:
+        st.error(f"Error reading PDF file: {e}")
+        st.stop()
+    
+    st.subheader("Extracted PDF Text (for reference)")
+    st.text_area("PDF Text", full_text, height=200)
+
+    # --- Extract Proposals ---
     proposals = []
-    
-    # Check if the extracted text contains proposal keywords
-    if "Proposal" not in text:
-        print("Warning: No 'Proposal' keyword found in extracted text. The document format may not match expectations.")
-        return proposals
-    
+    # This regex captures:
+    # - The proposal text (which may span multiple lines) up to the vote results line
+    # - The vote numbers: For, Against, Abstain, Broker Non-Votes
     proposal_pattern = re.compile(
-        r'Proposal\s*(?:No\.\s*)?(\d+)\s*[–-]\s*(.*?)\nFor:?\s*([\d,]+)?\s+Against:?\s*([\d,]+)?\s+Abstain:?\s*([\d,]+)?(?:\s+Withheld:?\s*([\d,]+))?\s+Broker Non-Votes:?\s*([\d,]+)?',
-        re.S
+        r"Proposal\s*\d+:\s*(.*?)\s*\n\s*For\s*--\s*([\d,]+)\s*Against\s*--\s*([\d,]+)\s*Abstain\s*--\s*([\d,]+)\s*Broker\s*Non-Votes\s*--\s*([\d,]+)",
+        re.DOTALL | re.IGNORECASE
     )
-    matches = proposal_pattern.findall(text)
     
-    if not matches:
-        print("No proposals matched. Check the formatting of the document.")
-    
-    for match in matches:
-        proposal_number, proposal_text, votes_for, votes_against, votes_abstain, votes_withheld, votes_broker = match
-        votes_for = votes_for.replace(',', '') if votes_for else ""
-        votes_against = votes_against.replace(',', '') if votes_against else ""
-        votes_abstain = votes_abstain.replace(',', '') if votes_abstain else ""
-        votes_withheld = votes_withheld.replace(',', '') if votes_withheld else ""
-        votes_broker = votes_broker.replace(',', '') if votes_broker else ""
+    for match in proposal_pattern.finditer(full_text):
+        # Clean up the proposal text (remove newlines inside the text)
+        prop_text = " ".join(match.group(1).strip().split())
+        votes_for_raw = match.group(2).strip()
+        votes_against_raw = match.group(3).strip()
+        votes_abstain_raw = match.group(4).strip()
+        votes_broker_raw = match.group(5).strip()
         
-        resolution_outcome = "Approved" if votes_for and votes_against and int(votes_for) > int(votes_against) else "Not Approved"
-        proposal_data = [
-            ["Proposal Proxy Year", "2024"],
-            ["Resolution Outcome", f"{resolution_outcome} ({votes_for} > {votes_against})"],
-            ["Proposal Text", proposal_text.strip()],
-            ["Mgmt Proposal Category", ""],
-            ["Vote Results - For", votes_for],
-            ["Vote Results - Against", votes_against],
-            ["Vote Results - Abstained", votes_abstain],
-            ["Vote Results - Withheld", votes_withheld],
-            ["Vote Results - Broker Non-Votes", votes_broker],
-            ["Proposal Vote Results Total", ""],
-            ["", ""]  # Blank row for spacing
-        ]
-        proposals.extend(proposal_data)
-    
-    return proposals
+        # Remove commas and convert vote counts to integers for comparison
+        try:
+            votes_for = int(votes_for_raw.replace(",", ""))
+            votes_against = int(votes_against_raw.replace(",", ""))
+        except:
+            votes_for = 0
+            votes_against = 0
 
-def process_pdf(pdf_file):
-    text = extract_text_from_pdf(pdf_file)
-    proposals_data = extract_proposals(text)
-    proposals_df = pd.DataFrame(proposals_data, columns=["Field", "Value"])
+        # Determine resolution outcome
+        resolution = "Approved" if votes_for > votes_against else "Rejected"
+        resolution_outcome = f"{resolution} ({votes_for_raw}>{votes_against_raw})"
+        
+        # Try to extract the proposal proxy year (looking for a 4-digit number like 2024)
+        year_match = re.search(r'\b(20\d{2})\b', prop_text)
+        proposal_year = year_match.group(1) if year_match else ""
+        
+        proposals.append({
+            "Proposal Proxy Year": proposal_year,
+            "Resolution Outcome": resolution_outcome,
+            "Proposal Text": prop_text,
+            "Mgmt. Proposal Category": "",
+            "Vote Results - For": votes_for_raw,
+            "Vote Results - Against": votes_against_raw,
+            "Vote Results - Abstained": match.group(4).strip(),
+            "Vote Results - Withheld": "",  # Not provided
+            "Vote Results - Broker Non-Votes": votes_broker_raw,
+            "Proposal Vote Results Total": ""
+        })
     
-    return proposals_df
-
-def generate_excel(proposals_df):
+    st.subheader("Extracted Proposals")
+    if proposals:
+        st.dataframe(pd.DataFrame(proposals))
+    else:
+        st.warning("No proposals found using the current pattern.")
+    
+    # --- Extract Director Election Results ---
+    directors = []
+    # Look for the section with director election results using the "Nominee" header.
+    # The assumption is that the section header contains "Nominee" followed by column headings.
+    director_section = ""
+    director_section_match = re.search(r"Nominee\s+For\s+.*Broker Non-Votes\s*\n(.*)", full_text, re.DOTALL | re.IGNORECASE)
+    if director_section_match:
+        director_section = director_section_match.group(1)
+    else:
+        # Fallback: if "Nominee" is found anywhere, split from that point onward.
+        if "Nominee" in full_text:
+            director_section = full_text.split("Nominee", 1)[1]
+    
+    director_lines = director_section.splitlines()
+    # Remove potential header line (if it contains 'For')
+    if director_lines and "For" in director_lines[0]:
+        director_lines = director_lines[1:]
+    
+    # Process each non-empty line assuming each line contains:
+    # Name, Votes For, Votes Withheld, Broker Non-Votes (separated by multiple spaces)
+    for line in director_lines:
+        line = line.strip()
+        if not line:
+            continue
+        parts = re.split(r'\s{2,}', line)
+        if len(parts) >= 4:
+            name = parts[0].strip()
+            votes_for = parts[1].strip()
+            votes_withheld = parts[2].strip()
+            votes_broker = parts[3].strip()
+            directors.append({
+                "Director Election Year": "2024",
+                "Individual": name,
+                "Director Votes For": votes_for,
+                "Director Votes Against": "",   # Not available
+                "Director Votes Abstained": "",   # Not available
+                "Director Votes Withheld": votes_withheld,
+                "Director Votes Broker-Non-Votes": votes_broker
+            })
+    
+    st.subheader("Extracted Director Election Results")
+    if directors:
+        st.dataframe(pd.DataFrame(directors))
+    else:
+        st.warning("No director election results found using the current pattern.")
+    
+    # --- Create Excel with Two Sheets ---
     output = BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        if not proposals_df.empty:
-            proposals_df.to_excel(writer, sheet_name='Proposal Data', index=False)
+    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+        if proposals:
+            df_proposals = pd.DataFrame(proposals)
+            # Write proposals data to the "Proposal" sheet
+            df_proposals.to_excel(writer, sheet_name="Proposal", index=False)
+        if directors:
+            df_directors = pd.DataFrame(directors)
+            # Write director election data to the "non-proposal" sheet
+            df_directors.to_excel(writer, sheet_name="non-proposal", index=False)
+        writer.save()
     
-    output.seek(0)
-    return output
-
-def main():
-    st.title("AGM Data Extractor & Formatter")
-    uploaded_file = st.file_uploader("Upload AGM results PDF", type=["pdf"])
+    processed_data = output.getvalue()
     
-    if uploaded_file is not None:
-        proposals_df = process_pdf(uploaded_file)
-        
-        if not proposals_df.empty:
-            st.write("### Extracted Proposal Data")
-            st.dataframe(proposals_df)
-        else:
-            st.write("No Proposal Data Found - Please check if the document format is correct.")
-        
-        excel_file = generate_excel(proposals_df)
-        st.download_button(
-            label="Download Extracted Data as Excel",
-            data=excel_file,
-            file_name="AGM_Extracted_Data.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-
-if __name__ == "__main__":
-    main()
+    st.download_button(
+        label="Download Excel file",
+        data=processed_data,
+        file_name="AGM_Results.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
