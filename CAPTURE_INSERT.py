@@ -17,7 +17,9 @@ def extract_text_from_pdf(pdf_file):
     try:
         with pdfplumber.open(pdf_file) as pdf:
             for page in pdf.pages:
-                text += page.extract_text() + "\n"
+                page_text = page.extract_text()
+                if page_text:
+                    text += page_text + "\n"
     except Exception as e:
         st.error(f"Error reading PDF: {e}")
     return text
@@ -25,20 +27,21 @@ def extract_text_from_pdf(pdf_file):
 # --- Function to extract proposal data using regex ---
 def extract_proposals(text):
     proposals = []
-    # Regex pattern to match a proposal block.
-    # This assumes the proposal block starts with "Proposal <number>:" and then proposal text followed by a line with votes.
+    # Updated regex pattern without forcing newline characters strictly.
     proposal_pattern = re.compile(
-        r"Proposal\s*\d+:\s*(?P<text>.*?)(?=\nFor\s*--)\nFor\s*--\s*(?P<for>[\d,]+)\s*Against\s*--\s*(?P<against>[\d,]+)\s*Abstain\s*--\s*(?P<abstain>[\d,]+).*?(?:Broker\s*Non-Votes|BrokerNon-Votes)\s*--\s*(?P<broker>[\d,]+)",
+        r"Proposal\s*\d+:\s*(?P<text>.*?)(?=For\s*--)\s*For\s*--\s*(?P<for>[\d,]+)\s*Against\s*--\s*(?P<against>[\d,]+)\s*Abstain\s*--\s*(?P<abstain>[\d,]+).*?(?:Broker\s*Non-Votes|BrokerNon-Votes)\s*--\s*(?P<broker>[\d,]+)",
         re.DOTALL | re.IGNORECASE
     )
-    for match in proposal_pattern.finditer(text):
+    matches = list(proposal_pattern.finditer(text))
+    st.write(f"DEBUG: Found {len(matches)} proposal match(es).")
+    for match in matches:
         proposal_text = match.group("text").strip().replace("\n", " ")
         vote_for = match.group("for").strip()
         vote_against = match.group("against").strip()
         vote_abstain = match.group("abstain").strip()
         vote_broker = match.group("broker").strip()
         
-        # Attempt to extract a year from the proposal text (e.g., fiscal year). Default to blank if not found.
+        # Try to extract a year from the proposal text (e.g., fiscal year)
         year_match = re.search(r'\b(20\d{2})\b', proposal_text)
         proposal_year = year_match.group(1) if year_match else ""
         
@@ -73,15 +76,17 @@ def extract_director_elections(text):
     lines = text.splitlines()
     header_index = None
     
-    # Find the header row that contains director election info (assumes header includes "Nominee" and "For")
+    # Find the header row that contains director election info (assuming it contains both "Nominee" and "For")
     for idx, line in enumerate(lines):
         if "Nominee" in line and "For" in line:
             header_index = idx
             break
 
     if header_index is None:
+        st.write("DEBUG: Director election header not found in the text.")
         return directors  # No director data found
 
+    st.write(f"DEBUG: Director election header found at line {header_index}.")
     # Process each subsequent line (until an empty line or until data stops)
     for line in lines[header_index+1:]:
         if not line.strip():
@@ -90,12 +95,9 @@ def extract_director_elections(text):
         parts = re.split(r'\s{2,}', line.strip())
         if len(parts) < 3:
             continue  # not enough data
-        # Expecting at least: [Individual, For, Withheld, Broker Non-Votes] 
-        # Sometimes the Broker Non-Votes column may be the 3rd or 4th element.
-        # We'll try to handle both cases.
+        # Expected order: [Individual, For, Withheld, Broker Non-Votes]
         name = parts[0]
         vote_for = parts[1]
-        # Assume Withheld is always provided as the next column.
         vote_withheld = parts[2] if len(parts) >= 3 else ""
         vote_broker = parts[3] if len(parts) >= 4 else ""
         
@@ -170,7 +172,6 @@ if uploaded_file is not None:
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
         proposals_df.to_excel(writer, sheet_name="Proposal sheet", index=False)
         directors_df.to_excel(writer, sheet_name="non-proposal sheet", index=False)
-        writer.close()
     processed_data = output.getvalue()
 
     st.download_button(
