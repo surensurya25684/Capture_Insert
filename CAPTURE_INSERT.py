@@ -26,10 +26,7 @@ def extract_text_from_pdf(pdf_file):
     return text
 
 def get_item507_section(text):
-    """
-    Isolate the Item 5.07 section.
-    We look for "Item 5.07." and capture until the next "Item <number>.".
-    """
+    # Look for "Item 5.07." and capture until the next "Item" with a number followed by a period.
     match = re.search(r'(Item\s+5\.07\..*?)(?=Item\s+\d+\.)', text, re.DOTALL | re.IGNORECASE)
     if match:
         return match.group(1)
@@ -39,12 +36,13 @@ def get_item507_section(text):
 
 def parse_directors(section_text):
     directors = []
-    # Adjust regex to allow an optional leading number and a possible period after "Election of Directors"
-    proposal1_pattern = r'(?:\d+\.\s*)?Proposal\s+1\s*[-–—]\s*Election of Directors\.?(.*?)(?=(?:\d+\.\s*)?Proposal\s+\d+\s*[-–—]|$)'
+    # Updated regex: allow optional leading number, and allow a colon or period after "Election of Directors"
+    proposal1_pattern = r'(?:\d+\.\s*)?Proposal\s+1\s*[-–—]\s*Election of Directors[.:]?(.*?)(?=(?:\d+\.\s*)?Proposal\s+\d+\s*[-–—]|$)'
     match = re.search(proposal1_pattern, section_text, re.DOTALL | re.IGNORECASE)
     if match:
-        proposal1_content = match.group(1)
-        # Look for the director table header (exact phrase)
+        proposal1_content = match.group(1).strip()
+        st.write("Debug: Proposal 1 content snippet:", proposal1_content[:500])
+        # Look for the director table header
         table_match = re.search(r'Nominee\s+For\s+Against\s+Abstain\s+Broker Non[-\s]?Votes(.*)', proposal1_content, re.DOTALL | re.IGNORECASE)
         if table_match:
             table_text = table_match.group(1)
@@ -53,7 +51,7 @@ def parse_directors(section_text):
                 line = line.strip()
                 if not line:
                     continue
-                # Split the line by two or more spaces
+                # Split by two or more spaces
                 parts = re.split(r'\s{2,}', line)
                 if len(parts) >= 5:
                     name = parts[0]
@@ -212,7 +210,7 @@ if uploaded_file is not None:
         st.error("No text extracted from PDF.")
     else:
         st.success("PDF text extraction complete!")
-        # Uncomment the following line to view extracted text for debugging:
+        # Uncomment below to inspect the extracted text:
         # st.text_area("Extracted PDF Text", pdf_text, height=300)
     
     # Isolate the Item 5.07 section
@@ -240,7 +238,7 @@ if uploaded_file is not None:
     proposals_rows = format_proposals_for_excel(proposals)
     directors_rows = format_directors_for_excel(directors)
     
-    # Create Excel file with two sheets using xlsxwriter
+    # Write the Excel file with two sheets using xlsxwriter
     output = BytesIO()
     workbook = xlsxwriter.Workbook(output, {'in_memory': True})
     proposal_sheet = workbook.add_worksheet("Proposal sheet")
