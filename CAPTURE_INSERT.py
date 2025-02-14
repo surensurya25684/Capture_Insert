@@ -10,10 +10,18 @@ st.write("Upload your AGM results PDF file to extract proposals and director ele
 
 def extract_text_from_pdf(pdf_file):
     """Extract text from all pages of a PDF file."""
-    pdf_reader = PdfReader(pdf_file)
+    try:
+        pdf_reader = PdfReader(pdf_file)
+    except Exception as e:
+        st.error(f"Error reading PDF: {e}")
+        return ""
     text = ""
-    for page in pdf_reader.pages:
-        page_text = page.extract_text()
+    for i, page in enumerate(pdf_reader.pages):
+        try:
+            page_text = page.extract_text()
+        except Exception as e:
+            st.warning(f"Error extracting text from page {i+1}: {e}")
+            continue
         if page_text:
             text += page_text + "\n"
     return text
@@ -26,7 +34,9 @@ def get_item507_section(text):
     match = re.search(r'(Item\s+5\.07\..*?)(?=Item\s+\d+\.\d+|\Z)', text, re.DOTALL | re.IGNORECASE)
     if match:
         return match.group(1)
-    return text
+    else:
+        st.warning("Could not isolate Item 5.07 section; using entire document for parsing.")
+        return text
 
 def parse_directors(section_text):
     """
@@ -35,11 +45,11 @@ def parse_directors(section_text):
     and extract each row as director election data.
     """
     directors = []
-    # Locate the Proposal 1 block
-    match = re.search(r'(Proposal\s+1\s*–\s*Election of Directors.*?)(?=Proposal\s+\d+\s*–|$)', section_text, re.DOTALL | re.IGNORECASE)
+    # Accept various dash characters (hyphen, en-dash, em-dash) using a character class [-–—]
+    proposal1_pattern = r'(Proposal\s+1\s*[-–—]\s*Election of Directors.*?)(?=Proposal\s+\d+\s*[-–—]|$)'
+    match = re.search(proposal1_pattern, section_text, re.DOTALL | re.IGNORECASE)
     if match:
         proposal1_text = match.group(1)
-        # Find the director table within Proposal 1
         table_match = re.search(r'Nominee\s+For\s+Against\s+Abstain\s+Broker Non[-\s]?Votes(.*)', proposal1_text, re.DOTALL | re.IGNORECASE)
         if table_match:
             table_text = table_match.group(1)
@@ -79,6 +89,10 @@ def parse_directors(section_text):
                         "Director Votes Broker-Non-Votes": votes_broker
                     }
                     directors.append(director)
+        else:
+            st.warning("Director table header not found in Proposal 1.")
+    else:
+        st.warning("Proposal 1 (Election of Directors) not found.")
     return directors
 
 def parse_proposals(section_text):
@@ -89,23 +103,27 @@ def parse_proposals(section_text):
     from the respective columns. Against is left blank.
     """
     proposals = []
-    # Find Proposal blocks for numbers 2, 3, and 4
-    proposal_blocks = re.findall(r'(Proposal\s+([2-4])\s*–\s*(.*?))(?=Proposal\s+[2-4]\s*–|$)', section_text, re.DOTALL | re.IGNORECASE)
+    # Accept various dash characters in the header
+    proposal_pattern = r'(Proposal\s+([2-4])\s*[-–—]\s*(.*?))(?=Proposal\s+[2-4]\s*[-–—]|$)'
+    proposal_blocks = re.findall(proposal_pattern, section_text, re.DOTALL | re.IGNORECASE)
+    
+    if not proposal_blocks:
+        st.warning("No proposals (2, 3, 4) found using the expected pattern.")
+    
     for full_text, proposal_number, content in proposal_blocks:
-        # Split the content into non-empty lines
         lines = [line.strip() for line in content.splitlines() if line.strip()]
         if not lines:
             continue
-        # First line is the proposal title; the remainder contains narrative and vote data.
+        # The first line is usually the proposal title; the rest is narrative and vote info.
         proposal_title = lines[0]
         narrative_lines = []
         vote_header = ""
         vote_numbers_line = ""
         for i, line in enumerate(lines[1:], start=1):
-            # Detect vote header by checking for keywords "For" plus either "Against" or "One Year"
+            # Detect a vote header by checking for keywords "For" and either "Against" or "One Year"
             if re.search(r'\bFor\b', line, re.IGNORECASE) and (re.search(r'\bAgainst\b', line, re.IGNORECASE) or re.search(r'\bOne Year\b', line, re.IGNORECASE)):
                 vote_header = line
-                # Look ahead for the vote numbers line (the next line that contains digits)
+                # Look ahead for the vote numbers line (the next line containing digits)
                 for j in range(i+1, len(lines)):
                     if re.search(r'\d', lines[j]):
                         vote_numbers_line = lines[j]
@@ -113,13 +131,10 @@ def parse_proposals(section_text):
                 break
             else:
                 narrative_lines.append(line)
-        # Combine title and narrative lines to form the proposal text
         narrative_text = " ".join([proposal_title] + narrative_lines)
-        # Extract Proxy Year from the narrative (if a 4-digit number is found, e.g., fiscal year)
         year_match = re.search(r'\b(20\d{2})\b', narrative_text)
         proxy_year = year_match.group(1) if year_match else "2024"
         
-        # Process vote numbers
         vote_numbers = []
         if vote_numbers_line:
             vote_numbers = re.findall(r'[\d,]+', vote_numbers_line)
@@ -132,7 +147,6 @@ def parse_proposals(section_text):
         
         if vote_header:
             if re.search(r'\bAgainst\b', vote_header, re.IGNORECASE):
-                # For Proposals 2 and 3: expected order is For, Against, Abstain, and possibly Broker Non-Votes
                 if len(vote_numbers) >= 3:
                     vote_results_for = vote_numbers[0]
                     vote_results_against = vote_numbers[1]
@@ -147,12 +161,11 @@ def parse_proposals(section_text):
                 except:
                     resolution = ""
             elif re.search(r'\bOne Year\b', vote_header, re.IGNORECASE):
-                # For Proposal 4: header "One Year Two Years Three Years Abstain Broker Non-Votes"
                 if len(vote_numbers) >= 5:
-                    vote_results_for = vote_numbers[0]      # Use One Year votes as "For"
-                    vote_results_abstained = vote_numbers[3]  # Fourth column is Abstain
-                    vote_results_broker = vote_numbers[4]     # Fifth column is Broker Non-Votes
-                resolution = "Approved"  # Against not provided
+                    vote_results_for = vote_numbers[0]
+                    vote_results_abstained = vote_numbers[3]
+                    vote_results_broker = vote_numbers[4]
+                resolution = "Approved"
             else:
                 resolution = ""
         else:
@@ -175,7 +188,7 @@ def parse_proposals(section_text):
 
 def format_proposals_for_excel(proposals):
     """
-    Format proposals data in vertical layout:
+    Format proposals data in a vertical layout:
     Each proposal is rendered as several rows (field and value) with a blank row after each.
     """
     rows = []
@@ -195,7 +208,7 @@ def format_proposals_for_excel(proposals):
 
 def format_directors_for_excel(directors):
     """
-    Format director election data in vertical layout.
+    Format director election data in a vertical layout.
     """
     rows = []
     for director in directors:
@@ -215,7 +228,12 @@ uploaded_file = st.file_uploader("Upload AGM PDF", type=["pdf"])
 if uploaded_file is not None:
     with st.spinner("Extracting text from PDF..."):
         pdf_text = extract_text_from_pdf(uploaded_file)
-    st.success("PDF text extraction complete!")
+    if not pdf_text:
+        st.error("No text extracted from PDF.")
+    else:
+        st.success("PDF text extraction complete!")
+        # Uncomment below to preview full extracted text for debugging
+        # st.text_area("Extracted PDF Text", pdf_text, height=300)
     
     # Isolate the Item 5.07 section containing proposals and director elections
     section_text = get_item507_section(pdf_text)
@@ -251,7 +269,6 @@ if uploaded_file is not None:
     proposal_sheet = workbook.add_worksheet("Proposal sheet")
     director_sheet = workbook.add_worksheet("Non-proposal sheet")
     
-    # Write proposals rows to the Proposal sheet
     row_idx = 0
     for row in proposals_rows:
         col_idx = 0
@@ -260,7 +277,6 @@ if uploaded_file is not None:
             col_idx += 1
         row_idx += 1
 
-    # Write director rows to the Non-proposal sheet
     row_idx = 0
     for row in directors_rows:
         col_idx = 0
