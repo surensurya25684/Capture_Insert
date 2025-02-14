@@ -9,7 +9,6 @@ st.title("AGM Result Extractor")
 st.write("Upload your AGM results PDF file to extract proposals and director election data.")
 
 def extract_text_from_pdf(pdf_file):
-    """Extract text from all pages of a PDF file."""
     try:
         pdf_reader = PdfReader(pdf_file)
     except Exception as e:
@@ -28,10 +27,10 @@ def extract_text_from_pdf(pdf_file):
 
 def get_item507_section(text):
     """
-    Extract the section starting with Item 5.07 (Submission of Matters to a Vote of Security Holders)
-    and ending at the next Item or end of document.
+    Attempt to isolate the Item 5.07 section.
+    We look for "Item 5.07." and capture until the next "Item" with a two-digit section number or until "SIGNATURES".
     """
-    match = re.search(r'(Item\s+5\.07\..*?)(?=Item\s+\d+\.\d+|\Z)', text, re.DOTALL | re.IGNORECASE)
+    match = re.search(r'(Item\s+5\.07\..*?)(?=Item\s+\d{1,2}\.\d{2}|SIGNATURES)', text, re.DOTALL | re.IGNORECASE)
     if match:
         return match.group(1)
     else:
@@ -39,18 +38,14 @@ def get_item507_section(text):
         return text
 
 def parse_directors(section_text):
-    """
-    Parse Proposal 1 – Election of Directors.
-    Look for the table header "Nominee   For   Against   Abstain   Broker Non-Votes"
-    and extract each row as director election data.
-    """
     directors = []
-    # Accept various dash characters (hyphen, en-dash, em-dash) using a character class [-–—]
-    proposal1_pattern = r'(Proposal\s+1\s*[-–—]\s*Election of Directors.*?)(?=Proposal\s+\d+\s*[-–—]|$)'
+    # Adjust regex to allow an optional leading number & period (e.g., "1. Proposal 1 – Election of Directors")
+    proposal1_pattern = r'(?:\d+\.\s*)?Proposal\s+1\s*[-–—]\s*Election of Directors(.*?)(?=(?:\d+\.\s*)?Proposal\s+\d+\s*[-–—]|$)'
     match = re.search(proposal1_pattern, section_text, re.DOTALL | re.IGNORECASE)
     if match:
-        proposal1_text = match.group(1)
-        table_match = re.search(r'Nominee\s+For\s+Against\s+Abstain\s+Broker Non[-\s]?Votes(.*)', proposal1_text, re.DOTALL | re.IGNORECASE)
+        proposal1_content = match.group(1)
+        # Search for the director table header.
+        table_match = re.search(r'Nominee\s+For\s+Against\s+Abstain\s+Broker Non[-\s]?Votes(.*)', proposal1_content, re.DOTALL | re.IGNORECASE)
         if table_match:
             table_text = table_match.group(1)
             lines = table_text.splitlines()
@@ -58,7 +53,7 @@ def parse_directors(section_text):
                 line = line.strip()
                 if not line:
                     continue
-                # Split by two or more spaces
+                # Split the line by two or more spaces.
                 parts = re.split(r'\s{2,}', line)
                 if len(parts) >= 5:
                     name = parts[0]
@@ -96,34 +91,27 @@ def parse_directors(section_text):
     return directors
 
 def parse_proposals(section_text):
-    """
-    Parse Proposals 2, 3, and 4 from the Item 5.07 section.
-    Each proposal block is expected to have a narrative portion followed by a vote header and a line with vote numbers.
-    For Proposal 4 (which has a header with "One Year"), only the first vote is used for For, with Abstained and Broker values taken
-    from the respective columns. Against is left blank.
-    """
     proposals = []
-    # Accept various dash characters in the header
-    proposal_pattern = r'(Proposal\s+([2-4])\s*[-–—]\s*(.*?))(?=Proposal\s+[2-4]\s*[-–—]|$)'
+    # Regex for proposals 2, 3, and 4 with optional leading numbers.
+    proposal_pattern = r'(?:\d+\.\s*)?Proposal\s+([2-4])\s*[-–—]\s*(.*?)(?=(?:\d+\.\s*)?Proposal\s+[2-4]\s*[-–—]|$)'
     proposal_blocks = re.findall(proposal_pattern, section_text, re.DOTALL | re.IGNORECASE)
     
     if not proposal_blocks:
         st.warning("No proposals (2, 3, 4) found using the expected pattern.")
     
-    for full_text, proposal_number, content in proposal_blocks:
+    for proposal_number, content in proposal_blocks:
         lines = [line.strip() for line in content.splitlines() if line.strip()]
         if not lines:
             continue
-        # The first line is usually the proposal title; the rest is narrative and vote info.
+        # First line is the proposal title; the rest is narrative and vote info.
         proposal_title = lines[0]
         narrative_lines = []
         vote_header = ""
         vote_numbers_line = ""
         for i, line in enumerate(lines[1:], start=1):
-            # Detect a vote header by checking for keywords "For" and either "Against" or "One Year"
+            # Look for a vote header that contains "For" and either "Against" or "One Year"
             if re.search(r'\bFor\b', line, re.IGNORECASE) and (re.search(r'\bAgainst\b', line, re.IGNORECASE) or re.search(r'\bOne Year\b', line, re.IGNORECASE)):
                 vote_header = line
-                # Look ahead for the vote numbers line (the next line containing digits)
                 for j in range(i+1, len(lines)):
                     if re.search(r'\d', lines[j]):
                         vote_numbers_line = lines[j]
@@ -187,10 +175,6 @@ def parse_proposals(section_text):
     return proposals
 
 def format_proposals_for_excel(proposals):
-    """
-    Format proposals data in a vertical layout:
-    Each proposal is rendered as several rows (field and value) with a blank row after each.
-    """
     rows = []
     for proposal in proposals:
         rows.append(["Proposal Proxy Year:", proposal.get("Proposal Proxy Year", "")])
@@ -207,9 +191,6 @@ def format_proposals_for_excel(proposals):
     return rows
 
 def format_directors_for_excel(directors):
-    """
-    Format director election data in a vertical layout.
-    """
     rows = []
     for director in directors:
         rows.append(["Director Election Year:", director.get("Director Election Year", "")])
@@ -222,7 +203,6 @@ def format_directors_for_excel(directors):
         rows.append([])  # blank row as separator
     return rows
 
-# Streamlit file uploader
 uploaded_file = st.file_uploader("Upload AGM PDF", type=["pdf"])
 
 if uploaded_file is not None:
@@ -232,19 +212,16 @@ if uploaded_file is not None:
         st.error("No text extracted from PDF.")
     else:
         st.success("PDF text extraction complete!")
-        # Uncomment below to preview full extracted text for debugging
+        # Uncomment below to debug extracted text:
         # st.text_area("Extracted PDF Text", pdf_text, height=300)
     
-    # Isolate the Item 5.07 section containing proposals and director elections
+    # Isolate the Item 5.07 section
     section_text = get_item507_section(pdf_text)
     
-    # Parse director election data (Proposal 1)
+    # Parse director election data from Proposal 1 and proposals 2-4
     directors = parse_directors(section_text)
-    
-    # Parse proposals (Proposals 2, 3, 4)
     proposals = parse_proposals(section_text)
     
-    # Preview the parsed data in Streamlit
     st.header("Proposals Preview")
     if proposals:
         df_proposals = pd.DataFrame(proposals)
@@ -259,11 +236,11 @@ if uploaded_file is not None:
     else:
         st.warning("No director election data found in the document.")
     
-    # Format the data for Excel in a vertical layout
+    # Format data for Excel (vertical layout)
     proposals_rows = format_proposals_for_excel(proposals)
     directors_rows = format_directors_for_excel(directors)
     
-    # Create Excel file with two sheets using xlsxwriter
+    # Write the Excel file with two sheets
     output = BytesIO()
     workbook = xlsxwriter.Workbook(output, {'in_memory': True})
     proposal_sheet = workbook.add_worksheet("Proposal sheet")
