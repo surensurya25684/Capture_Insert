@@ -170,7 +170,7 @@ if uploaded_file is not None:
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
         proposals_df.to_excel(writer, sheet_name="Proposal sheet", index=False)
         directors_df.to_excel(writer, sheet_name="non-proposal sheet", index=False)
-        writer.save()
+        writer.close()
     processed_data = output.getvalue()
 
     st.download_button(
