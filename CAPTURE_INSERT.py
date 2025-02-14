@@ -15,19 +15,24 @@ def extract_text_from_pdf(pdf_file):
                 text += page_text + "\n"
     
     if not text.strip():  # If no text was extracted, use OCR
+        pdf_file.seek(0)  # Reset file pointer
         images = convert_from_bytes(pdf_file.read())
         text = "\n".join(pytesseract.image_to_string(img) for img in images)
     
+    print("Extracted Text:", text[:2000])  # Print the first 2000 characters to check the text format
     return text
 
 def extract_proposals(text):
     proposals = []
     
-    # Debugging output
-    print("Extracted Text:", text[:1000])  # Print the first 1000 characters to check the text format
+    # Check if the extracted text contains proposal keywords
+    if "Proposal" not in text:
+        print("Warning: No 'Proposal' keyword found in extracted text. The document format may not match expectations.")
+        return proposals
     
     proposal_pattern = re.compile(
-        r'Proposal\s*(?:No\.\s*)?(\d+)\s*[–-]\s*(.*?)\nFor\s+([\d,]+)?\s+Against\s+([\d,]+)?\s+Abstain\s+([\d,]+)?(?:\s+Withheld\s+([\d,]+))?\s+Broker Non-Votes\s+([\d,]+)?', re.S
+        r'Proposal\s*(?:No\.\s*)?(\d+)\s*[–-]\s*(.*?)\nFor:?\s*([\d,]+)?\s+Against:?\s*([\d,]+)?\s+Abstain:?\s*([\d,]+)?(?:\s+Withheld:?\s*([\d,]+))?\s+Broker Non-Votes:?\s*([\d,]+)?',
+        re.S
     )
     matches = proposal_pattern.findall(text)
     
