@@ -13,8 +13,18 @@ def extract_proposals(text):
         proposal_number, proposal_text, votes_for, votes_against, votes_abstain, votes_broker = match
         votes_for, votes_against, votes_abstain, votes_broker = map(lambda x: x.replace(',', ''), [votes_for, votes_against, votes_abstain, votes_broker])
         resolution_outcome = "Approved" if int(votes_for) > int(votes_against) else "Not Approved"
-        proposals.append([
-            "2024", resolution_outcome + f" ({votes_for}>{votes_against})", proposal_text.strip(), "", votes_for, votes_against, votes_abstain, "", votes_broker, ""
+        proposals.extend([
+            ["Proposal Proxy Year", "2024"],
+            ["Resolution Outcome", f"{resolution_outcome} ({votes_for} > {votes_against})"],
+            ["Proposal Text", proposal_text.strip()],
+            ["Mgmt Proposal Category", ""],
+            ["Vote Results - For", votes_for],
+            ["Vote Results - Against", votes_against],
+            ["Vote Results - Abstained", votes_abstain],
+            ["Vote Results - Withheld", ""],
+            ["Vote Results - Broker Non-Votes", votes_broker],
+            ["Proposal Vote Results Total", ""],
+            ["", ""]  # Blank row for spacing
         ])
     
     return proposals
@@ -27,8 +37,15 @@ def extract_director_votes(text):
     for match in matches:
         name, votes_for, votes_withheld, votes_broker = match
         votes_for, votes_withheld, votes_broker = map(lambda x: x.replace(',', ''), [votes_for, votes_withheld, votes_broker])
-        directors.append([
-            "2024", name.strip(), votes_for, "", "", votes_withheld, votes_broker
+        directors.extend([
+            ["Director Election Year", "2024"],
+            ["Individual", name.strip()],
+            ["Director Votes For", votes_for],
+            ["Director Votes Against", ""],
+            ["Director Votes Abstained", ""],
+            ["Director Votes Withheld", votes_withheld],
+            ["Director Votes Broker-Non-Votes", votes_broker],
+            ["", ""]  # Blank row for spacing
         ])
     
     return directors
@@ -40,24 +57,16 @@ def process_pdf(pdf_file):
     proposals_data = extract_proposals(text)
     directors_data = extract_director_votes(text)
     
-    proposals_df = pd.DataFrame(proposals_data, columns=[
-        "Proposal Proxy Year", "Resolution Outcome", "Proposal Text", "Mgmt Proposal Category",
-        "Vote Results - For", "Vote Results - Against", "Vote Results - Abstained",
-        "Vote Results - Withheld", "Vote Results - Broker Non-Votes", "Proposal Vote Results Total"
-    ])
-    
-    directors_df = pd.DataFrame(directors_data, columns=[
-        "Director Election Year", "Individual", "Director Votes For", "Director Votes Against",
-        "Director Votes Abstained", "Director Votes Withheld", "Director Votes Broker-Non-Votes"
-    ])
+    proposals_df = pd.DataFrame(proposals_data, columns=["Field", "Value"])
+    directors_df = pd.DataFrame(directors_data, columns=["Field", "Value"])
     
     return proposals_df, directors_df
 
 def generate_excel(proposals_df, directors_df):
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        proposals_df.to_excel(writer, sheet_name='Proposals', index=False)
-        directors_df.to_excel(writer, sheet_name='Non-Proposals', index=False)
+        proposals_df.to_excel(writer, sheet_name='Proposal Data', index=False)
+        directors_df.to_excel(writer, sheet_name='Non-Proposal Data', index=False)
     
     output.seek(0)
     return output
@@ -68,10 +77,10 @@ def main():
     
     if uploaded_file is not None:
         proposals_df, directors_df = process_pdf(uploaded_file)
-        st.write("### Extracted Proposals Data")
+        st.write("### Extracted Proposal Data")
         st.dataframe(proposals_df)
         
-        st.write("### Extracted Director Elections Data")
+        st.write("### Extracted Non-Proposal Data")
         st.dataframe(directors_df)
         
         excel_file = generate_excel(proposals_df, directors_df)
