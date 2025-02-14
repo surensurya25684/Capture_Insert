@@ -13,17 +13,20 @@ def extract_proposals(text):
         proposal_number, proposal_text, votes_for, votes_against, votes_abstain, votes_broker = match
         votes_for, votes_against, votes_abstain, votes_broker = map(lambda x: x.replace(',', ''), [votes_for, votes_against, votes_abstain, votes_broker])
         resolution_outcome = "Approved" if int(votes_for) > int(votes_against) else "Not Approved"
-        proposals.append(["Proposal Proxy Year", "2024"])
-        proposals.append(["Resolution Outcome", f"{resolution_outcome} ({votes_for} > {votes_against})"])
-        proposals.append(["Proposal Text", proposal_text.strip()])
-        proposals.append(["Mgmt Proposal Category", ""])
-        proposals.append(["Vote Results - For", votes_for])
-        proposals.append(["Vote Results - Against", votes_against])
-        proposals.append(["Vote Results - Abstained", votes_abstain])
-        proposals.append(["Vote Results - Withheld", ""])
-        proposals.append(["Vote Results - Broker Non-Votes", votes_broker])
-        proposals.append(["Proposal Vote Results Total", ""])
-        proposals.append(["", ""])  # Blank row for spacing
+        proposal_data = [
+            ["Proposal Proxy Year", "2024"],
+            ["Resolution Outcome", f"{resolution_outcome} ({votes_for} > {votes_against})"],
+            ["Proposal Text", proposal_text.strip()],
+            ["Mgmt Proposal Category", ""],
+            ["Vote Results - For", votes_for],
+            ["Vote Results - Against", votes_against],
+            ["Vote Results - Abstained", votes_abstain],
+            ["Vote Results - Withheld", ""],
+            ["Vote Results - Broker Non-Votes", votes_broker],
+            ["Proposal Vote Results Total", ""],
+            ["", ""]  # Blank row for spacing
+        ]
+        proposals.extend(proposal_data)
     
     return proposals
 
@@ -35,14 +38,17 @@ def extract_director_votes(text):
     for match in matches:
         name, votes_for, votes_withheld, votes_broker = match
         votes_for, votes_withheld, votes_broker = map(lambda x: x.replace(',', ''), [votes_for, votes_withheld, votes_broker])
-        directors.append(["Director Election Year", "2024"])
-        directors.append(["Individual", name.strip()])
-        directors.append(["Director Votes For", votes_for])
-        directors.append(["Director Votes Against", ""])
-        directors.append(["Director Votes Abstained", ""])
-        directors.append(["Director Votes Withheld", votes_withheld])
-        directors.append(["Director Votes Broker-Non-Votes", votes_broker])
-        directors.append(["", ""])  # Blank row for spacing
+        director_data = [
+            ["Director Election Year", "2024"],
+            ["Individual", name.strip()],
+            ["Director Votes For", votes_for],
+            ["Director Votes Against", ""],
+            ["Director Votes Abstained", ""],
+            ["Director Votes Withheld", votes_withheld],
+            ["Director Votes Broker-Non-Votes", votes_broker],
+            ["", ""]  # Blank row for spacing
+        ]
+        directors.extend(director_data)
     
     return directors
 
