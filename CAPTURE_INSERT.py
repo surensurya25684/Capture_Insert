@@ -1,12 +1,15 @@
 import streamlit as st
 import re
 import pandas as pd
+import xlsxwriter
 from io import BytesIO
 from PyPDF2 import PdfReader
 
-# --------- Helper Functions ---------
+st.title("AGM Result Extractor")
+st.write("Upload your AGM results PDF file to extract proposals and director election data.")
+
 def extract_text_from_pdf(pdf_file):
-    """Extracts text from a PDF file."""
+    """Extract text from all pages of a PDF file."""
     pdf_reader = PdfReader(pdf_file)
     text = ""
     for page in pdf_reader.pages:
@@ -15,145 +18,198 @@ def extract_text_from_pdf(pdf_file):
             text += page_text + "\n"
     return text
 
-def parse_proposals(text):
+def get_item507_section(text):
     """
-    Parses proposals from the PDF text.
-    Looks for sections starting with "Proposal <number>:" and then extracts:
-      - Proposal Proxy Year (from fiscal year text if available)
-      - Proposal Text (all text before the votes line)
-      - Vote counts from the line containing For, Against, Abstain, Broker Non-Votes.
-      - Computes Resolution Outcome (Approved if For > Against)
-      - Leaves Mgmt. Proposal Category, Vote Results - Withheld and Proposal Vote Results Total blank.
+    Extract the section starting with Item 5.07 (Submission of Matters to a Vote of Security Holders)
+    and ending at the next Item or end of document.
     """
-    proposals = []
-    # Split by proposal blocks (each block starts with "Proposal" followed by a number)
-    proposal_blocks = re.split(r'(?=Proposal\s*\d+:)', text)
-    for block in proposal_blocks:
-        if block.strip().startswith("Proposal"):
-            # Search for the vote counts line using a regex
-            votes_match = re.search(
-                r'For\s*--\s*([\d,]+)\s*Against\s*--\s*([\d,]+)\s*Abstain\s*--\s*([\d,]+)\s*Broker Non-Votes\s*--\s*([\d,]+)',
-                block
-            )
-            if votes_match:
-                for_votes_str = votes_match.group(1).replace(',', '')
-                against_votes_str = votes_match.group(2).replace(',', '')
-                abstain_votes_str = votes_match.group(3).replace(',', '')
-                broker_votes_str = votes_match.group(4).replace(',', '')
-                try:
-                    for_votes = int(for_votes_str)
-                except:
-                    for_votes = 0
-                try:
-                    against_votes = int(against_votes_str)
-                except:
-                    against_votes = 0
-                try:
-                    abstain_votes = int(abstain_votes_str)
-                except:
-                    abstain_votes = 0
-                try:
-                    broker_votes = int(broker_votes_str)
-                except:
-                    broker_votes = 0
+    match = re.search(r'(Item\s+5\.07\..*?)(?=Item\s+\d+\.\d+|\Z)', text, re.DOTALL | re.IGNORECASE)
+    if match:
+        return match.group(1)
+    return text
 
-                # Compute Resolution Outcome
-                if for_votes > against_votes:
-                    resolution = f"Approved ({for_votes} > {against_votes})"
-                else:
-                    resolution = f"Not Approved ({for_votes} <= {against_votes})"
-
-                # Remove the votes part to get the proposal text
-                proposal_text = re.split(r'For\s*--', block)[0].strip()
-                # Optionally remove the "Proposal X:" label from the beginning.
-                proposal_text = re.sub(r'^Proposal\s*\d+:\s*', '', proposal_text, flags=re.IGNORECASE)
-
-                # Extract year from a phrase like "fiscal year ending ... 2024"
-                year_match = re.search(r'fiscal year ending.*?(\d{4})', proposal_text, re.IGNORECASE)
-                if year_match:
-                    proxy_year = year_match.group(1)
-                else:
-                    # Fallback: look for any standalone 4-digit number (e.g. 2024)
-                    year_match = re.search(r'\b(20\d{2})\b', proposal_text)
-                    proxy_year = year_match.group(1) if year_match else ""
-
-                proposal = {
-                    "Proposal Proxy Year": proxy_year,
-                    "Resolution Outcome": resolution,
-                    "Proposal Text": proposal_text,
-                    "Mgmt. Proposal Category": "",
-                    "Vote Results - For": for_votes,
-                    "Vote Results - Against": against_votes,
-                    "Vote Results - Abstained": abstain_votes,
-                    "Vote Results - Withheld": "",
-                    "Vote Results - Broker Non-Votes": broker_votes,
-                    "Proposal Vote Results Total": ""
-                }
-                proposals.append(proposal)
-    return proposals
-
-def parse_directors(text):
+def parse_directors(section_text):
     """
-    Parses director election data from the PDF text.
-    Expects to find a table starting with a header that includes:
-      "Nominee", "For", "Withheld", and "Broker Non-Votes".
-    For each director row, the following fields are captured:
-      - Director Election Year (set as 2024)
-      - Individual (director's name)
-      - Director Votes For
-      - Director Votes Against (left blank if not given)
-      - Director Votes Abstained (left blank if not given)
-      - Director Votes Withheld
-      - Director Votes Broker-Non-Votes
+    Parse Proposal 1 – Election of Directors.
+    Look for the table header "Nominee   For   Against   Abstain   Broker Non-Votes"
+    and extract each row as director election data.
     """
     directors = []
-    # Find the table section starting at "Nominee" (case-insensitive)
-    table_match = re.search(r'Nominee\s+For\s+Withheld\s+Broker Non-Votes(.*)', text, re.DOTALL | re.IGNORECASE)
-    if table_match:
-        table_text = table_match.group(1)
-        # Split into lines and iterate over each line
-        lines = table_text.splitlines()
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
-            # Split columns by two or more spaces (this should separate name and the numbers)
-            parts = re.split(r'\s{2,}', line)
-            # Expect at least 4 parts: [Individual, For, Withheld, Broker Non-Votes]
-            if len(parts) >= 4:
-                name = parts[0]
-                votes_for_str = parts[1].replace(',', '')
-                withheld_str = parts[2].replace(',', '')
-                broker_str = parts[3].replace(',', '')
-                try:
-                    votes_for = int(votes_for_str)
-                except:
-                    votes_for = 0
-                try:
-                    withheld = int(withheld_str)
-                except:
-                    withheld = 0
-                try:
-                    broker = int(broker_str)
-                except:
-                    broker = 0
-                director = {
-                    "Director Election Year": "2024",
-                    "Individual": name,
-                    "Director Votes For": votes_for,
-                    "Director Votes Against": "",
-                    "Director Votes Abstained": "",
-                    "Director Votes Withheld": withheld,
-                    "Director Votes Broker-Non-Votes": broker
-                }
-                directors.append(director)
+    # Locate the Proposal 1 block
+    match = re.search(r'(Proposal\s+1\s*–\s*Election of Directors.*?)(?=Proposal\s+\d+\s*–|$)', section_text, re.DOTALL | re.IGNORECASE)
+    if match:
+        proposal1_text = match.group(1)
+        # Find the director table within Proposal 1
+        table_match = re.search(r'Nominee\s+For\s+Against\s+Abstain\s+Broker Non[-\s]?Votes(.*)', proposal1_text, re.DOTALL | re.IGNORECASE)
+        if table_match:
+            table_text = table_match.group(1)
+            lines = table_text.splitlines()
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+                # Split by two or more spaces
+                parts = re.split(r'\s{2,}', line)
+                if len(parts) >= 5:
+                    name = parts[0]
+                    try:
+                        votes_for = int(parts[1].replace(',', ''))
+                    except:
+                        votes_for = ""
+                    try:
+                        votes_against = int(parts[2].replace(',', ''))
+                    except:
+                        votes_against = ""
+                    try:
+                        votes_abstain = int(parts[3].replace(',', ''))
+                    except:
+                        votes_abstain = ""
+                    try:
+                        votes_broker = int(parts[4].replace(',', ''))
+                    except:
+                        votes_broker = ""
+                    
+                    director = {
+                        "Director Election Year": "2024",
+                        "Individual": name,
+                        "Director Votes For": votes_for,
+                        "Director Votes Against": votes_against,
+                        "Director Votes Abstained": votes_abstain,
+                        "Director Votes Withheld": "",
+                        "Director Votes Broker-Non-Votes": votes_broker
+                    }
+                    directors.append(director)
     return directors
 
-# --------- Streamlit App UI ---------
-st.title("AGM Result Extractor")
-st.write("Upload your AGM results PDF file to extract proposals and director election data.")
+def parse_proposals(section_text):
+    """
+    Parse Proposals 2, 3, and 4 from the Item 5.07 section.
+    Each proposal block is expected to have a narrative portion followed by a vote header and a line with vote numbers.
+    For Proposal 4 (which has a header with "One Year"), only the first vote is used for For, with Abstained and Broker values taken
+    from the respective columns. Against is left blank.
+    """
+    proposals = []
+    # Find Proposal blocks for numbers 2, 3, and 4
+    proposal_blocks = re.findall(r'(Proposal\s+([2-4])\s*–\s*(.*?))(?=Proposal\s+[2-4]\s*–|$)', section_text, re.DOTALL | re.IGNORECASE)
+    for full_text, proposal_number, content in proposal_blocks:
+        # Split the content into non-empty lines
+        lines = [line.strip() for line in content.splitlines() if line.strip()]
+        if not lines:
+            continue
+        # First line is the proposal title; the remainder contains narrative and vote data.
+        proposal_title = lines[0]
+        narrative_lines = []
+        vote_header = ""
+        vote_numbers_line = ""
+        for i, line in enumerate(lines[1:], start=1):
+            # Detect vote header by checking for keywords "For" plus either "Against" or "One Year"
+            if re.search(r'\bFor\b', line, re.IGNORECASE) and (re.search(r'\bAgainst\b', line, re.IGNORECASE) or re.search(r'\bOne Year\b', line, re.IGNORECASE)):
+                vote_header = line
+                # Look ahead for the vote numbers line (the next line that contains digits)
+                for j in range(i+1, len(lines)):
+                    if re.search(r'\d', lines[j]):
+                        vote_numbers_line = lines[j]
+                        break
+                break
+            else:
+                narrative_lines.append(line)
+        # Combine title and narrative lines to form the proposal text
+        narrative_text = " ".join([proposal_title] + narrative_lines)
+        # Extract Proxy Year from the narrative (if a 4-digit number is found, e.g., fiscal year)
+        year_match = re.search(r'\b(20\d{2})\b', narrative_text)
+        proxy_year = year_match.group(1) if year_match else "2024"
+        
+        # Process vote numbers
+        vote_numbers = []
+        if vote_numbers_line:
+            vote_numbers = re.findall(r'[\d,]+', vote_numbers_line)
+            vote_numbers = [int(num.replace(',', '')) for num in vote_numbers]
+        
+        vote_results_for = ""
+        vote_results_against = ""
+        vote_results_abstained = ""
+        vote_results_broker = ""
+        
+        if vote_header:
+            if re.search(r'\bAgainst\b', vote_header, re.IGNORECASE):
+                # For Proposals 2 and 3: expected order is For, Against, Abstain, and possibly Broker Non-Votes
+                if len(vote_numbers) >= 3:
+                    vote_results_for = vote_numbers[0]
+                    vote_results_against = vote_numbers[1]
+                    vote_results_abstained = vote_numbers[2]
+                    if len(vote_numbers) >= 4:
+                        vote_results_broker = vote_numbers[3]
+                try:
+                    if int(vote_results_for) > int(vote_results_against):
+                        resolution = f"Approved ({vote_results_for} > {vote_results_against})"
+                    else:
+                        resolution = f"Not Approved ({vote_results_for} <= {vote_results_against})"
+                except:
+                    resolution = ""
+            elif re.search(r'\bOne Year\b', vote_header, re.IGNORECASE):
+                # For Proposal 4: header "One Year Two Years Three Years Abstain Broker Non-Votes"
+                if len(vote_numbers) >= 5:
+                    vote_results_for = vote_numbers[0]      # Use One Year votes as "For"
+                    vote_results_abstained = vote_numbers[3]  # Fourth column is Abstain
+                    vote_results_broker = vote_numbers[4]     # Fifth column is Broker Non-Votes
+                resolution = "Approved"  # Against not provided
+            else:
+                resolution = ""
+        else:
+            resolution = ""
+        
+        proposal = {
+            "Proposal Proxy Year": proxy_year,
+            "Resolution Outcome": resolution,
+            "Proposal Text": narrative_text,
+            "Mgmt. Proposal Category": "",
+            "Vote Results - For": vote_results_for,
+            "Vote Results - Against": vote_results_against,
+            "Vote Results - Abstained": vote_results_abstained,
+            "Vote Results - Withheld": "",
+            "Vote Results - Broker Non-Votes": vote_results_broker,
+            "Proposal Vote Results Total": ""
+        }
+        proposals.append(proposal)
+    return proposals
 
-# PDF file uploader
+def format_proposals_for_excel(proposals):
+    """
+    Format proposals data in vertical layout:
+    Each proposal is rendered as several rows (field and value) with a blank row after each.
+    """
+    rows = []
+    for proposal in proposals:
+        rows.append(["Proposal Proxy Year:", proposal.get("Proposal Proxy Year", "")])
+        rows.append(["Resolution Outcome:", proposal.get("Resolution Outcome", "")])
+        rows.append(["Proposal Text:", proposal.get("Proposal Text", "")])
+        rows.append(["Mgmt. Proposal Category:", proposal.get("Mgmt. Proposal Category", "")])
+        rows.append(["Vote Results - For:", proposal.get("Vote Results - For", "")])
+        rows.append(["Vote Results - Against:", proposal.get("Vote Results - Against", "")])
+        rows.append(["Vote Results - Abstained:", proposal.get("Vote Results - Abstained", "")])
+        rows.append(["Vote Results - Withheld:", proposal.get("Vote Results - Withheld", "")])
+        rows.append(["Vote Results - Broker Non-Votes:", proposal.get("Vote Results - Broker Non-Votes", "")])
+        rows.append(["Proposal Vote Results Total:", proposal.get("Proposal Vote Results Total", "")])
+        rows.append([])  # blank row as separator
+    return rows
+
+def format_directors_for_excel(directors):
+    """
+    Format director election data in vertical layout.
+    """
+    rows = []
+    for director in directors:
+        rows.append(["Director Election Year:", director.get("Director Election Year", "")])
+        rows.append(["Individual:", director.get("Individual", "")])
+        rows.append(["Director Votes For:", director.get("Director Votes For", "")])
+        rows.append(["Director Votes Against:", director.get("Director Votes Against", "")])
+        rows.append(["Director Votes Abstained:", director.get("Director Votes Abstained", "")])
+        rows.append(["Director Votes Withheld:", director.get("Director Votes Withheld", "")])
+        rows.append(["Director Votes Broker-Non-Votes:", director.get("Director Votes Broker-Non-Votes", "")])
+        rows.append([])  # blank row as separator
+    return rows
+
+# Streamlit file uploader
 uploaded_file = st.file_uploader("Upload AGM PDF", type=["pdf"])
 
 if uploaded_file is not None:
@@ -161,11 +217,16 @@ if uploaded_file is not None:
         pdf_text = extract_text_from_pdf(uploaded_file)
     st.success("PDF text extraction complete!")
     
-    # Parse proposals and director election data
-    proposals = parse_proposals(pdf_text)
-    directors = parse_directors(pdf_text)
+    # Isolate the Item 5.07 section containing proposals and director elections
+    section_text = get_item507_section(pdf_text)
     
-    # Preview Proposals
+    # Parse director election data (Proposal 1)
+    directors = parse_directors(section_text)
+    
+    # Parse proposals (Proposals 2, 3, 4)
+    proposals = parse_proposals(section_text)
+    
+    # Preview the parsed data in Streamlit
     st.header("Proposals Preview")
     if proposals:
         df_proposals = pd.DataFrame(proposals)
@@ -173,7 +234,6 @@ if uploaded_file is not None:
     else:
         st.warning("No proposals found in the document.")
     
-    # Preview Director Election Data (Non-Proposal)
     st.header("Director Elections Preview")
     if directors:
         df_directors = pd.DataFrame(directors)
@@ -181,20 +241,40 @@ if uploaded_file is not None:
     else:
         st.warning("No director election data found in the document.")
     
-    # Create Excel file with two sheets
-    if proposals or directors:
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-            if proposals:
-                df_proposals.to_excel(writer, sheet_name="Proposal sheet", index=False)
-            if directors:
-                df_directors.to_excel(writer, sheet_name="Non-proposal sheet", index=False)
-            writer.save()
-        processed_data = output.getvalue()
-        
-        st.download_button(
-            label="Download Excel File",
-            data=processed_data,
-            file_name="AGM_Results.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+    # Format the data for Excel in a vertical layout
+    proposals_rows = format_proposals_for_excel(proposals)
+    directors_rows = format_directors_for_excel(directors)
+    
+    # Create Excel file with two sheets using xlsxwriter
+    output = BytesIO()
+    workbook = xlsxwriter.Workbook(output, {'in_memory': True})
+    proposal_sheet = workbook.add_worksheet("Proposal sheet")
+    director_sheet = workbook.add_worksheet("Non-proposal sheet")
+    
+    # Write proposals rows to the Proposal sheet
+    row_idx = 0
+    for row in proposals_rows:
+        col_idx = 0
+        for cell in row:
+            proposal_sheet.write(row_idx, col_idx, cell)
+            col_idx += 1
+        row_idx += 1
+
+    # Write director rows to the Non-proposal sheet
+    row_idx = 0
+    for row in directors_rows:
+        col_idx = 0
+        for cell in row:
+            director_sheet.write(row_idx, col_idx, cell)
+            col_idx += 1
+        row_idx += 1
+
+    workbook.close()
+    processed_data = output.getvalue()
+    
+    st.download_button(
+        label="Download Excel File",
+        data=processed_data,
+        file_name="AGM_Results.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
