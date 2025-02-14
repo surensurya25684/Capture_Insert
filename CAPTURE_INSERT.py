@@ -6,16 +6,14 @@ from io import BytesIO
 
 def extract_proposals(text):
     proposals = []
-    proposal_pattern = re.compile(r'Proposal (\d+):\s*(.*?)\nFor -- ([\d,]+) Against -- ([\d,]+) Abstain -- ([\d,]+) BrokerNon-Votes -- ([\d,]+)', re.S)
+    proposal_pattern = re.compile(r'Proposal No\. (\d+) – (.*?)\nFor\s+([\d,]+)\s+Against\s+([\d,]+)\s+Abstain\s+([\d,]+)\s+Broker Non-Votes\s+([\d,]+)', re.S)
     matches = proposal_pattern.findall(text)
     
     for match in matches:
         proposal_number, proposal_text, votes_for, votes_against, votes_abstain, votes_broker = match
         votes_for, votes_against, votes_abstain, votes_broker = map(lambda x: x.replace(',', ''), [votes_for, votes_against, votes_abstain, votes_broker])
         resolution_outcome = "Approved" if int(votes_for) > int(votes_against) else "Not Approved"
-        proposals.append([
-            "Proposal Proxy Year", "2024"
-        ])
+        proposals.append(["Proposal Proxy Year", "2024"])
         proposals.append(["Resolution Outcome", f"{resolution_outcome} ({votes_for} > {votes_against})"])
         proposals.append(["Proposal Text", proposal_text.strip()])
         proposals.append(["Mgmt Proposal Category", ""])
