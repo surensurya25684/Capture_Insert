@@ -75,11 +75,18 @@ def main():
     
     if uploaded_file is not None:
         proposals_df, directors_df = process_pdf(uploaded_file)
-        st.write("### Extracted Proposal Data")
-        st.dataframe(proposals_df)
         
-        st.write("### Extracted Non-Proposal Data")
-        st.dataframe(directors_df)
+        if not proposals_df.empty:
+            st.write("### Extracted Proposal Data")
+            st.dataframe(proposals_df)
+        else:
+            st.write("No Proposal Data Found")
+        
+        if not directors_df.empty:
+            st.write("### Extracted Non-Proposal Data")
+            st.dataframe(directors_df)
+        else:
+            st.write("No Non-Proposal Data Found")
         
         excel_file = generate_excel(proposals_df, directors_df)
         st.download_button(
