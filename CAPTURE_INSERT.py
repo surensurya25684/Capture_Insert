@@ -69,12 +69,14 @@ if uploaded_file is not None:
                         for_votes = candidate_match.group(2).replace(',', '')
                         withheld_votes = candidate_match.group(3).replace(',', '')
                         broker_non_votes = candidate_match.group(4).replace(',', '')
-                        director_df = director_df.append({
-                           "Nominee": nominee,
-                           "For Votes": int(for_votes),
-                           "Withheld Votes": int(withheld_votes),
-                           "Broker Non-Votes": int(broker_non_votes)
-                        }, ignore_index=True)
+                        director_df.loc[len(director_df)] = {
+                          "Nominee": nominee,
+                          "For Votes": int(for_votes),
+                          "Withheld Votes": int(withheld_votes),
+                          "Broker Non-Votes": int(broker_non_votes)
+                       }
+
+
 
         else:
             # For other proposals, extract vote counts. We expect lines like "For <number>", "Against <number>", etc.
