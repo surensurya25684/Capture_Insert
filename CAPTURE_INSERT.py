@@ -6,7 +6,7 @@ from io import BytesIO
 
 def extract_proposals(text):
     proposals = []
-    proposal_pattern = re.compile(r'Proposal (\d+):(.*?)For -- (\d[\d,]*) Against -- (\d[\d,]*) Abstain -- (\d[\d,]*) BrokerNon-Votes -- (\d[\d,]*)', re.S)
+    proposal_pattern = re.compile(r'Proposal (\d+):(.*?)\nFor -- ([\d,]+) Against -- ([\d,]+) Abstain -- ([\d,]+) BrokerNon-Votes -- ([\d,]+)', re.S)
     matches = proposal_pattern.findall(text)
     
     for match in matches:
@@ -21,7 +21,7 @@ def extract_proposals(text):
 
 def extract_director_votes(text):
     directors = []
-    director_pattern = re.compile(r'(.*?)\s+(\d[\d,]*)\s+(\d[\d,]*)\s+(\d[\d,]*)')
+    director_pattern = re.compile(r'([A-Za-z\s]+)\s+([\d,]+)\s+([\d,]+)\s+([\d,]+)')
     matches = director_pattern.findall(text)
     
     for match in matches:
